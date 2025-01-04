@@ -1,74 +1,108 @@
-import time
-import os
-import requests
-import random
-
 from selenium import webdriver
 from selenium.webdriver.common.by import By
-from selenium.webdriver.common.keys import Keys
 from selenium.common.exceptions import (
-    StaleElementReferenceException,
-    NoSuchElementException
+    NoSuchElementException,
+    TimeoutException
 )
+import time
+import requests
+import os
 
-def create_chrome_driver(chromedriver_path=None, headless=True):
+def scrape_flickr_paginated(
+    base_url,
+    max_images=100,
+    chromedriver_path="path/to/chromedriver",
+    save_dir="flickr_full_images",
+    start_page=1,
+):
     """
-    Create and return a Chrome WebDriver instance.
-    Set headless=True to run without opening a browser window.
+    Scrape images from paginated Flickr group pages.
+    e.g., https://www.flickr.com/groups/cinestillfilm/pool/page1, /page2, ...
+    
+    :param base_url: The base URL without the trailing slash and page number.
+    :param max_images: Maximum number of images to download.
+    :param chromedriver_path: Path to the ChromeDriver executable.
+    :param save_dir: Directory where downloaded images will be saved.
+    :param start_page: The first page to start scraping from.
     """
+
+    # Setup Chrome options
     chrome_options = webdriver.ChromeOptions()
-    if headless:
-        chrome_options.add_argument("--headless")
+    chrome_options.add_argument("--headless")
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
 
-    if chromedriver_path:
-        service = webdriver.chrome.service.Service(chromedriver_path)
-        driver = webdriver.Chrome(service=service, options=chrome_options)
-    else:
-        # This requires chromedriver on your PATH
-        driver = webdriver.Chrome(options=chrome_options)
+    # Initialize WebDriver
+    service = webdriver.chrome.service.Service(chromedriver_path)
+    driver = webdriver.Chrome(service=service, options=chrome_options)
 
-    return driver
-
-
-def lazy_scroll(driver, pause_time=2, max_scroll_attempts=3):
-    """
-    Scroll the page until no new content is loaded,
-    or until we've done 'max_scroll_attempts' consecutive scrolls without progress.
-    """
-    last_height = driver.execute_script("return document.body.scrollHeight")
-    scroll_attempts = 0
-
-    while True:
-        # Scroll to bottom
-        driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-        time.sleep(pause_time)
-
-        new_height = driver.execute_script("return document.body.scrollHeight")
-        if new_height == last_height:
-            scroll_attempts += 1
-        else:
-            scroll_attempts = 0
-
-        if scroll_attempts >= max_scroll_attempts:
-            print("Reached the end of scrolling or no more new content.")
-            break
-
-        last_height = new_height
-
-
-def save_image(url, idx, save_dir="reddit_cinestill_images"):
-    """
-    Download the image from 'url' and save to 'save_dir' with index 'idx'.
-    """
-    os.makedirs(save_dir, exist_ok=True)
-    filename = os.path.join(save_dir, f"{idx}.jpg")
+    image_count = 0
+    page_num = start_page
 
     try:
-        response = requests.get(url, stream=True, timeout=15)
+        while image_count < max_images:
+            # Construct the paginated URL
+            page_url = f"{base_url}/page{page_num}"
+            print(f"Navigating to: {page_url}")
+            driver.get(page_url)
+            time.sleep(3)
+
+            # Get all <a> elements that link to the image detail page
+            image_links = driver.find_elements(By.CSS_SELECTOR, "a.overlay")
+
+            # If no images found, we assume we've gone beyond the last page
+            if not image_links:
+                print(f"No images found on page {page_num}. Stopping.")
+                break
+
+            # Collect all the link URLs first to avoid stale references
+            link_urls = [link.get_attribute("href") for link in image_links if link.get_attribute("href")]
+
+            # Visit each link's detail page to scrape the full-size image
+            for link_url in link_urls:
+                if image_count >= max_images:
+                    break
+
+                # Navigate directly to the image detail page
+                try:
+                    driver.get(link_url)
+                    time.sleep(2)
+
+                    # Attempt to find the large "main-photo" element
+                    try:
+                        full_image = driver.find_element(By.CSS_SELECTOR, "img.main-photo")
+                        src = full_image.get_attribute("src")
+                    except NoSuchElementException:
+                        # If there's no "main-photo" on this page, skip to the next link
+                        print(f"No main-photo found for image {image_count + 1} at {link_url}.")
+                        continue
+
+                    # Save image if src is valid
+                    if src:
+                        image_count += 1
+                        save_image(src, image_count, save_dir)
+
+                except TimeoutException:
+                    print(f"Timeout loading {link_url}. Skipping.")
+                    continue
+                except Exception as e:
+                    print(f"Unexpected error loading {link_url}: {e}")
+                    continue
+
+            # Move on to the next page
+            page_num += 1
+
+    finally:
+        driver.quit()
+
+
+def save_image(url, idx, save_dir):
+    os.makedirs(save_dir, exist_ok=True)
+    try:
+        response = requests.get(url, stream=True)
         if response.status_code == 200:
-            with open(filename, "wb") as f:
+            image_path = os.path.join(save_dir, f"{idx}.jpg")
+            with open(image_path, "wb") as f:
                 for chunk in response.iter_content(1024):
                     f.write(chunk)
             print(f"Downloaded {idx}: {url}")
@@ -78,79 +112,11 @@ def save_image(url, idx, save_dir="reddit_cinestill_images"):
         print(f"Error downloading {url}: {e}")
 
 
-def scrape_reddit_images(
-    start_url="https://www.reddit.com/r/analog/search/?q=cinestill&cId=39049d8c-d493-4d36-a334-1cfec7887ab7&iId=9a235081-9359-48f2-8a00-e360e64a7368",
-    max_images=100,
-    chromedriver_path="/path/to/chromedriver",
-    headless=True,
-    save_dir="reddit_cinestill_images"
-):
-    driver = create_chrome_driver(chromedriver_path=chromedriver_path, headless=headless)
-
-    try:
-        driver.get(start_url)
-        time.sleep(3)  # Let the page load a bit
-
-        # Scroll to load all possible posts
-        lazy_scroll(driver, pause_time=2, max_scroll_attempts=3)
-
-        # Collect all 'thumbnail' images: these typically have a 'thumbs.redditmedia.com' src
-        thumbnails = driver.find_elements(By.CSS_SELECTOR, "img[src*='thumbs.redditmedia.com']")
-        print(f"Found {len(thumbnails)} potential thumbnails.")
-
-        image_count = 0
-        for i, thumb in enumerate(thumbnails):
-            if image_count >= max_images:
-                break
-
-            try:
-                # Click the thumbnail to open lightbox
-                thumb.click()
-                time.sleep(2)
-
-                # Find the large image in the lightbox:
-                # It's usually <img class="media-lightbox-img" src="...">
-                # We'll attempt it with a small retry for staleness or no element
-                attempts = 0
-                while attempts < 3:
-                    try:
-                        full_img = driver.find_element(By.CSS_SELECTOR, "img.media-lightbox-img")
-                        src = full_img.get_attribute("src")
-                        break
-                    except StaleElementReferenceException:
-                        attempts += 1
-                        time.sleep(1)
-                        print(f"Retry find_element for full_img. Attempt {attempts}")
-
-                if src:
-                    image_count += 1
-                    save_image(src, image_count, save_dir=save_dir)
-                else:
-                    print("No image src found in lightbox; skipping.")
-
-                # Close the lightbox (send ESC) or find a close button
-                driver.find_element(By.TAG_NAME, "body").send_keys(Keys.ESCAPE)
-                time.sleep(1)
-
-            except NoSuchElementException:
-                print("No lightbox or no large image found; skipping this thumbnail.")
-            except Exception as e:
-                print(f"Error processing thumbnail {i+1}: {e}")
-
-    finally:
-        driver.quit()
-        print(f"Done. Downloaded {image_count} images to '{save_dir}'.")
-
-
 if __name__ == "__main__":
-    scrape_reddit_images(
-        start_url=(
-            "https://www.reddit.com/r/analog/search/?q=cinestill"
-            "&cId=39049d8c-d493-4d36-a334-1cfec7887ab7"
-            "&iId=9a235081-9359-48f2-8a00-e360e64a7368"
-        ),
-        max_images=200,  # or however many you want
+    scrape_flickr_paginated(
+        base_url="https://www.flickr.com/groups/cinestillfilm/pool",
+        max_images=1000,
         chromedriver_path="/Users/yahyarahhawi/Downloads/chromedriver-mac-arm64/chromedriver",
-        headless=True,
-        save_dir="cinestill_reddit_images"
+        save_dir="new_dataset2",
+        start_page=1
     )
