@@ -11,4 +11,6 @@
 *.heic
 *.webp
 *.zip
+*.pth
+*.png
 UNSB/
