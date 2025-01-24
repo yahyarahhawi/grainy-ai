@@ -347,7 +347,7 @@ def film(input_image, weights_path, resize_to=2048, lum=False):
 
     final = hsl_to_rgb_vectorized(img_hsl)
     final = skimage.img_as_ubyte(final)
-    final = generate_film_grain(final, grain_intensity=0.1, chroma=0.3, blur_sigma=0.8)
+    # final = generate_film_grain(final, grain_intensity=0.1, chroma=0.3, blur_sigma=0.8)
 
     plt.figure(figsize=(20, 10))
     plt.imshow(final)
