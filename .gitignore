@@ -13,4 +13,8 @@
 *.zip
 *.pth
 *.png
+*.mov
+*.mp4
+*.avi
+*.MOV
 UNSB/
