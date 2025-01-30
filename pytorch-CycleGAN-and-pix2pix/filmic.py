@@ -285,6 +285,24 @@ import skimage.filters
 import skimage.color
 import matplotlib.pyplot as plt
 
+def match_bc(target_img, reference_img):
+    # Convert images to float for calculations
+    target_img = skimage.img_as_float(target_img)
+    reference_img = skimage.img_as_float(reference_img)
+    
+    # Process each channel separately
+    matched = np.zeros_like(target_img)
+    for channel in range(target_img.shape[2]):
+        target_mean, target_std = target_img[..., channel].mean(), target_img[..., channel].std()
+        reference_mean, reference_std = reference_img[..., channel].mean(), reference_img[..., channel].std()
+
+        # Apply the adjustment formula
+        matched[..., channel] = (target_img[..., channel] - target_mean) / target_std * reference_std + reference_mean
+    
+    # Clip to valid range and convert back to uint8
+    matched = np.clip(matched, 0, 1)  # scikit-image uses range [0, 1] for float images
+    return matched
+
 def blur_edges(img):
     """
     Applies a blur effect to the input image, preserving edges.
@@ -329,6 +347,7 @@ def film(input_image, weights_path, resize_to=2048, lum=False):
     filmic = transform_image_A_to_B(input_image, weights_path, resize_to=resize_to)
     if lum:
         return filmic
+    #filmic = skimage.filters.gaussian(filmic, sigma=3, channel_axis=-1)
     filmic = skimage.img_as_float(filmic)
 
     img = skimage.img_as_float(img)
@@ -337,7 +356,7 @@ def film(input_image, weights_path, resize_to=2048, lum=False):
     filmic = skimage.transform.resize(filmic, img.shape, anti_aliasing=True)
     img = skimage.img_as_float(img)
 
-    img = match_histograms_custom(img, filmic, nbins=16)
+    img = match_bc(img, filmic)
 
     img_hsl = rgb_to_hsl_vectorized(img)
     filmic_hsl = rgb_to_hsl_vectorized(filmic)
@@ -347,7 +366,7 @@ def film(input_image, weights_path, resize_to=2048, lum=False):
 
     final = hsl_to_rgb_vectorized(img_hsl)
     final = skimage.img_as_ubyte(final)
-    # final = generate_film_grain(final, grain_intensity=0.1, chroma=0.3, blur_sigma=0.8)
+    final = generate_film_grain(final, grain_intensity=0.1, chroma=0.3, blur_sigma=0.8)
 
     plt.figure(figsize=(20, 10))
     plt.imshow(final)
