@@ -21,41 +21,26 @@ from models import create_model
 def transform_image_A_to_B(
     input_image: Image.Image,
     weights_path: str,
-    device: str = "mps",    # "cpu", "cuda", or "mps"
+    device: str = "mps",
     resize_to: int = 256,
-    generator: str = "resnet_9blocks"
+    generator: str = "resnet_9blocks",
+    alpha: float = 1.0  # new argument
 ) -> np.ndarray:
     """
-    Creates a 'cycle_gan' model for domain A->B, manually loads netG_A from `weights_path`,
-    and applies it to `input_image`. Returns a NumPy array representing the image.
-
-    Supports CPU, CUDA, or MPS:
-      device="cpu"  => uses CPU
-      device="cuda" => uses GPU
-      device="mps"  => uses Apple Silicon GPU (macOS 12.3+ w/ PyTorch MPS build)
-
-    :param input_image:   A PIL image (or string path to an image).
-    :param weights_path:  Path to the netG_A checkpoint (e.g. '50_net_G_A.pth').
-    :param device:        'cpu', 'cuda', or 'mps'.
-    :param resize_to:     Resolution for inference (default=256).
-    :return:             A NumPy array in domain B.
+    Same as before, but includes optional alpha blending between original and GAN output.
     """
-
-    # 1. Prepare minimal CLI args so TestOptions won't fail,
-    #    now explicitly including the new netG argument.
     original_argv = sys.argv
     sys.argv = [
         original_argv[0],
-        "--dataroot", "dummy",         # required dummy dataroot
-        "--model", "cycle_gan",         # ensures we have netG_A and netG_B
-        "--dataset_mode", "single",     # we feed images manually
-        "--gpu_ids", "-1",              # override device manually below
-        "--netG", generator    # specify the generator architecture
+        "--dataroot", "dummy",
+        "--model", "cycle_gan",
+        "--dataset_mode", "single",
+        "--gpu_ids", "-1",
+        "--netG", generator
     ]
-    opt = TestOptions().parse()  # parse minimal CLI args
-    sys.argv = original_argv     # restore original argv
+    opt = TestOptions().parse()
+    sys.argv = original_argv
 
-    # 2. Override additional needed fields
     opt.isTrain = False
     opt.no_dropout = True
     opt.load_size = resize_to
@@ -64,30 +49,24 @@ def transform_image_A_to_B(
     opt.num_threads = 0
     opt.batch_size = 1
 
-    # 3. Create the model in 'cycle_gan' mode (so we have netG_A)
     model = create_model(opt)
     model.eval()
 
-    # 4. Manually load netG_A from your checkpoint
     state_dict = torch.load(weights_path, map_location=device)
     model.netG_A.load_state_dict(state_dict)
 
-    # 5. If input_image is a path, load as a PIL image
     if isinstance(input_image, str):
         input_image = Image.open(input_image).convert("RGB")
 
-    # Save original input image shape for resizing later
     original_shape = input_image.size  # (Width, Height)
 
-    # 6. Preprocess the image (CycleGAN typically uses normalized images in [-1,1])
     transform_pipeline = transforms.Compose([
         transforms.Resize((resize_to, resize_to)),
         transforms.ToTensor(),
         transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
     ])
-    input_tensor = transform_pipeline(input_image).unsqueeze(0)  # (1, C, H, W)
+    input_tensor = transform_pipeline(input_image).unsqueeze(0)
 
-    # 7. Move the model & data to the chosen device
     if device.lower() == "cuda" and torch.cuda.is_available():
         model.netG_A.to("cuda")
         input_tensor = input_tensor.to("cuda")
@@ -98,21 +77,27 @@ def transform_image_A_to_B(
         model.netG_A.to("cpu")
         input_tensor = input_tensor.to("cpu")
 
-    # 8. Forward pass with netG_A
     with torch.no_grad():
         fake_B = model.netG_A(input_tensor)
 
-    # 9. Post-process: convert from [-1,1] -> [0,255], then to NumPy array
     fake_B = (0.5 * (fake_B + 1.0)) * 255
     fake_B_numpy = fake_B.squeeze(0).permute(1, 2, 0).cpu().numpy().astype(np.uint8)
 
-    # 10. Resize to original input image shape
-    original_shape_hw = (original_shape[1], original_shape[0])  # (Height, Width)
+    # Resize GAN output to original shape
+    original_shape_hw = (original_shape[1], original_shape[0])
     fake_B_resized = skimage.transform.resize(
         fake_B_numpy, original_shape_hw, anti_aliasing=True, preserve_range=True
     ).astype(np.uint8)
 
-    return fake_B_resized
+    # Perform blending if alpha != 1
+    if alpha == 1.0:
+        return fake_B_resized
+    else:
+        original_np = np.array(input_image.resize(original_shape_hw)).astype(np.uint8)
+        original_float = skimage.img_as_float(original_np)
+        filmic_float = skimage.img_as_float(fake_B_resized)
+        blended = np.clip((1 - alpha) * original_float + alpha * filmic_float, 0, 1)
+        return skimage.img_as_ubyte(blended)
 
 def rgb_to_hsl_vectorized(image):
     """Convert an RGB image to HSL using vectorized operations."""
@@ -419,25 +404,25 @@ def film(input_image, weights_path, resize_to=2048, lum=False, grain = False, ge
     if lum:
         return filmic
     #filmic = skimage.filters.gaussian(filmic, sigma=3, channel_axis=-1)
+    filmic = skimage.transform.resize(filmic, img.shape, anti_aliasing=True)
+
     filmic = skimage.img_as_float(filmic)
 
     img = skimage.img_as_float(img)
     img = blur_edges(img)
     
-    filmic = skimage.transform.resize(filmic, img.shape, anti_aliasing=True)
-    filmic = generate_film_grain(filmic, grain_intensity=0.1, chroma=0, blur_sigma=0.9)
-    filmic = skimage.img_as_float(filmic)
     img = skimage.img_as_float(img)
 
-    img = match_histograms_custom(img, filmic, nbins = 8)
+    #img = match_histograms_custom(img, filmic, nbins = 8)
 
-    img_hsl = rgb_to_hsl_vectorized(img)
-    filmic_hsl = rgb_to_hsl_vectorized(filmic)
+    img_hsl = skimage.color.rgb2lab(img)
+    filmic_hsl = skimage.color.rgb2lab(filmic)
+    img_hsl[...,0] = match_histograms_custom(img_hsl[..., 0], filmic_hsl[..., 0], nbins=256)
 
     # Replace H and S channels from filmic to img
-    img_hsl[..., 0], img_hsl[..., 2] = filmic_hsl[..., 0], filmic_hsl[..., 2]
+    img_hsl[..., 1], img_hsl[..., 2] = filmic_hsl[..., 1], filmic_hsl[..., 2]
 
-    final = hsl_to_rgb_vectorized(img_hsl)
+    final = skimage.color.lab2rgb(img_hsl)
     final = skimage.img_as_ubyte(final)
     if not grain: return final
     final = generate_film_grain(final, grain_intensity=0.1, chroma=0.3, blur_sigma=0.8)
