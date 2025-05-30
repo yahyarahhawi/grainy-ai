@@ -18,3 +18,32 @@
 *.avi
 *.MOV
 UNSB/
+
+# Raw images and videos
+*.jpg
+*.jpeg
+*.png
+*.mov
+*.mp4
+*.tiff
+*.heic
+
+# Model weights and ML packages
+*.pth
+*.mlmodel
+*.mlpackage
+*.mlmodelc
+*.pkl
+*.pyz
+*.pkg
+
+# Build and dist folders
+build/
+dist/
+
+# Mac system files
+.DS_Store
+
+# PyTorch cache and compiled Python files
+__pycache__/
+*.pyc

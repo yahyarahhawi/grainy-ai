@@ -1,20 +1,23 @@
-import numpy as np
-import skimage
-import skimage.io as skio
-import skimage.exposure
-import skimage.transform
-import matplotlib.pyplot as plt
 import sys
-import torch
-from PIL import Image
-from torchvision import transforms
 import numpy as np
-import skimage
-import skimage.io as skio
-from skimage.transform import resize
+import torch
+import cv2
 import matplotlib.pyplot as plt
+from PIL import Image, ImageOps
+from torchvision import transforms
+from scipy.ndimage import gaussian_filter
 
-# Ensure 'pytorch-CycleGAN-and-pix2pix' is in your Python path.
+import skimage
+from skimage import (
+    io as skio,
+    exposure,
+    transform,
+    filters,
+    color,
+    img_as_float,
+    img_as_ubyte
+)
+
 from options.test_options import TestOptions
 from models import create_model
 
@@ -24,20 +27,19 @@ def transform_image_A_to_B(
     device: str = "mps",
     resize_to: int = 256,
     generator: str = "resnet_9blocks",
-    alpha: float = 1.0  # new argument
+    alpha: float = 1.0
 ) -> np.ndarray:
-    """
-    Same as before, but includes optional alpha blending between original and GAN output.
-    """
+
+    if isinstance(input_image, str):
+        input_image = Image.open(input_image).convert("RGB")
+    input_image = ImageOps.exif_transpose(input_image)  # ensure correct orientation
+
+    original_shape_hw = (input_image.height, input_image.width)
+
+    # Setup CycleGAN model
     original_argv = sys.argv
-    sys.argv = [
-        original_argv[0],
-        "--dataroot", "dummy",
-        "--model", "cycle_gan",
-        "--dataset_mode", "single",
-        "--gpu_ids", "-1",
-        "--netG", generator
-    ]
+    sys.argv = [original_argv[0], "--dataroot", "dummy", "--model", "cycle_gan",
+                "--dataset_mode", "single", "--gpu_ids", "-1", "--netG", generator]
     opt = TestOptions().parse()
     sys.argv = original_argv
 
@@ -55,11 +57,6 @@ def transform_image_A_to_B(
     state_dict = torch.load(weights_path, map_location=device)
     model.netG_A.load_state_dict(state_dict)
 
-    if isinstance(input_image, str):
-        input_image = Image.open(input_image).convert("RGB")
-
-    original_shape = input_image.size  # (Width, Height)
-
     transform_pipeline = transforms.Compose([
         transforms.Resize((resize_to, resize_to)),
         transforms.ToTensor(),
@@ -67,10 +64,10 @@ def transform_image_A_to_B(
     ])
     input_tensor = transform_pipeline(input_image).unsqueeze(0)
 
-    if device.lower() == "cuda" and torch.cuda.is_available():
+    if device == "cuda" and torch.cuda.is_available():
         model.netG_A.to("cuda")
         input_tensor = input_tensor.to("cuda")
-    elif device.lower() == "mps" and hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+    elif device == "mps" and hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
         model.netG_A.to("mps")
         input_tensor = input_tensor.to("mps")
     else:
@@ -83,17 +80,21 @@ def transform_image_A_to_B(
     fake_B = (0.5 * (fake_B + 1.0)) * 255
     fake_B_numpy = fake_B.squeeze(0).permute(1, 2, 0).cpu().numpy().astype(np.uint8)
 
-    # Resize GAN output to original shape
-    original_shape_hw = (original_shape[1], original_shape[0])
+    # Resize back to original shape
     fake_B_resized = skimage.transform.resize(
-        fake_B_numpy, original_shape_hw, anti_aliasing=True, preserve_range=True
+        fake_B_numpy,
+        original_shape_hw,
+        anti_aliasing=True,
+        preserve_range=True
     ).astype(np.uint8)
 
-    # Perform blending if alpha != 1
     if alpha == 1.0:
         return fake_B_resized
     else:
-        original_np = np.array(input_image.resize(original_shape_hw)).astype(np.uint8)
+        # Resize the input image to match the GAN output shape for blending
+        original_np = np.array(input_image.resize((original_shape_hw[1], original_shape_hw[0]))).astype(np.uint8)
+        if original_np.shape != fake_B_resized.shape:
+            raise ValueError(f"Shape mismatch: original {original_np.shape}, transformed {fake_B_resized.shape}")
         original_float = skimage.img_as_float(original_np)
         filmic_float = skimage.img_as_float(fake_B_resized)
         blended = np.clip((1 - alpha) * original_float + alpha * filmic_float, 0, 1)

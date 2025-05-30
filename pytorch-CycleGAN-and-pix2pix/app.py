@@ -22,6 +22,8 @@ input_image_path = None
 weights_path = None
 input_image = None
 
+from PIL import ImageOps  # Add this import at the top
+
 def load_image():
     global input_image_path, input_image
     try:
@@ -40,8 +42,11 @@ def load_image():
 
     if input_image_path:
         try:
-            input_image = Image.open(input_image_path).convert("RGB")
-            display_image = input_image.copy()
+            img = Image.open(input_image_path).convert("RGB")
+            img = ImageOps.exif_transpose(img)  # 🔥 auto-rotate if needed
+            input_image = img
+
+            display_image = img.copy()
             display_image.thumbnail((300, 300))
             tk_image = ImageTk.PhotoImage(display_image)
             image_label.config(image=tk_image)
@@ -70,13 +75,13 @@ def copy_image_to_clipboard(pil_image):
     """Copy a PIL Image to the macOS clipboard using AppKit."""
     try:
         import io
-        from AppKit import NSPasteboard, NSPasteboardTypePNG, NSImage, NSApplication
+        from AppKit import NSPasteboard, NSPasteboardTypeTIFF, NSImage, NSApplication
         from Foundation import NSData
 
         app = NSApplication.sharedApplication()
 
         output = io.BytesIO()
-        pil_image.save(output, format="PNG")
+        pil_image.save(output, format="JPEG", quality=90)
         data = output.getvalue()
         output.close()
 
@@ -85,8 +90,8 @@ def copy_image_to_clipboard(pil_image):
 
         pasteboard = NSPasteboard.generalPasteboard()
         pasteboard.clearContents()
-        pasteboard.declareTypes_owner_([NSPasteboardTypePNG], None)
-        pasteboard.setData_forType_(nsdata, NSPasteboardTypePNG)
+        pasteboard.declareTypes_owner_([NSPasteboardTypeTIFF], None)
+        pasteboard.setData_forType_(nsdata, NSPasteboardTypeTIFF)
     except Exception as e:
         messagebox.showerror("Clipboard Error", f"Could not copy image to clipboard:\n{e}")
 
@@ -103,14 +108,12 @@ def convert_image():
 
         if mode == "transform":
             result = filmic.transform_image_A_to_B(
-                input_image, weights_path, resize_to=resize_value, generator=generator_type
-            )
+                input_image, weights_path, resize_to=resize_value, generator=generator_type, alpha = float(alpha_var.get()))
+
         else:
-            result = filmic.film2(input_image, weights_path, resize_to=resize_value, lum=False, generator=generator_type)
+            result = filmic.film(input_image, weights_path, resize_to=resize_value, lum=False, generator=generator_type)
         
         result_image_full = Image.fromarray(result)
-        if rotate_var.get():
-            result_image_full = result_image_full.rotate(-90, expand=True)
         
         copy_image_to_clipboard(result_image_full)
         
@@ -166,19 +169,26 @@ generator_label.grid(row=3, column=0, padx=10, pady=5, sticky="w")
 generator_menu = ttk.OptionMenu(root, generator_var, "resnet_15blocks", "resnet_9blocks", "resnet_15blocks")
 generator_menu.grid(row=3, column=1, padx=10, pady=5, sticky="w")
 
+# Add a drop-down menu for alpha values
+alpha_var = tk.StringVar(value="1.0")
+alpha_label = ttk.Label(root, text="Alpha:")
+alpha_label.grid(row=5, column=0, padx=10, pady=5, sticky="w")
+alpha_menu = ttk.OptionMenu(root, alpha_var, "1.0", "1.0", "1.25", "1.5", "1.75", "2.0")
+alpha_menu.grid(row=5, column=1, padx=10, pady=5, sticky="w")
+
 # Add a drop-down menu for resize resolution
 resize_var = tk.StringVar(value="256")
 resize_label = ttk.Label(root, text="Resize To:")
 resize_label.grid(row=4, column=0, padx=10, pady=5, sticky="w")
-resize_menu = ttk.OptionMenu(root, resize_var, "256", "256", "512", "1024", "2048")
+resize_menu = ttk.OptionMenu(root, resize_var, "256", "256", "512", "1024", "2048", "4096")
 resize_menu.grid(row=4, column=1, padx=10, pady=5, sticky="w")
 
 # Add a checkbox for rotation
 rotate_var = tk.BooleanVar(value=True)
 rotate_check = ttk.Checkbutton(root, text="Rotate 90° Clockwise", variable=rotate_var)
-rotate_check.grid(row=5, column=0, columnspan=2, padx=10, pady=5)
+rotate_check.grid(row=6, column=0, columnspan=2, padx=10, pady=5)
 
 convert_btn = ttk.Button(root, text="Convert", command=convert_image)
-convert_btn.grid(row=6, column=0, columnspan=2, padx=10, pady=20)
+convert_btn.grid(row=7, column=0, columnspan=2, padx=10, pady=20)
 
 root.mainloop()
