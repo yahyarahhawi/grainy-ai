@@ -1,3 +1,0 @@
-([('app',
-   '/Users/yahyarahhawi/Developer/Film/pytorch-CycleGAN-and-pix2pix/dist/app',
-   'EXECUTABLE')],)
