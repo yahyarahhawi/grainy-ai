@@ -1,79 +1,119 @@
-inference_size = 2048
-name = "cinestill"
-import sys
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""
+CycleGAN → Core ML (mlprogram) with baked-in output scaling 0…255
+----------------------------------------------------------------
+• Keeps input as UI-friendly 0…255 RGB by using ImageType(scale=1/127.5, bias=-1)
+• Adds a (x + 1) * 127.5 layer so the Core ML output is a displayable RGB image
+  and no post-processing is needed in Swift.
+
+Author: Yahya Rahhawi | 2025-06-10
+"""
+
+import sys, argparse, functools
+from pathlib import Path
+
 import torch
-from models import create_model
-from options.test_options import TestOptions
+import torch.nn as nn
+import coremltools as ct
 
-# Path to your pre-trained weights
-weights_path = "/Users/yahyarahhawi/Developer/Film/weights/Final/cinestill_LR1024/80_net_G_A.pth"
+# ---------- CLI ----------------------------------------------------------------
+parser = argparse.ArgumentParser(
+    description="Convert a CycleGAN generator weight file to Core ML with 0-255 output."
+)
+parser.add_argument("--inference_size", type=int, default=256,
+                    help="Spatial size (HxW) of the model. Must match training size.")
+parser.add_argument("--name", type=str, required=True,
+                    help="Base name for the resulting .mlpackage")
+parser.add_argument("--weights_path", type=str, required=True,
+                    help="Path to the pre-trained PyTorch generator weights (.pth)")
+args = parser.parse_args()
 
-# Override sys.argv to inject minimal CLI args for TestOptions
+# ---------- CycleGAN options stub ----------------------------------------------
+# The original repo uses its own Option parser, so we spoof the bare minimum
+
+def count_resnet_blocks(state_dict):
+    block_ids = set()
+    for k in state_dict:
+        if k.startswith("model.") and ".conv_block" in k:
+            try:
+                idx = int(k.split(".")[1])
+                block_ids.add(idx)
+            except ValueError:
+                pass
+    return len(block_ids)
+
 original_argv = sys.argv
 sys.argv = [
     original_argv[0],
-    '--dataroot', 'dummy',        # Needed to satisfy required '--dataroot' argument
-    '--model', 'cycle_gan',       # Specifies the CycleGAN model
-    '--dataset_mode', 'single',   # We are feeding images manually
-    '--gpu_ids', '-1',            # Disable GPU explicitly to avoid CUDA dependency
+    "--dataroot", "dummy",
+    "--model", "cycle_gan",
+    "--dataset_mode", "single",
+    "--gpu_ids", "-1",
+    "--netG", f"resnet_{count_resnet_blocks(torch.load(args.weights_path, map_location="cpu"))}blocks"
 ]
-
-# Parse the options
+from options.test_options import TestOptions
+from models import create_model
 opt = TestOptions().parse()
-
-# Restore sys.argv to its original state
 sys.argv = original_argv
 
-# Set additional options manually
-opt.isTrain = False  # Indicates we're running in evaluation/test mode
-opt.no_dropout = True  # No dropout for inference
-opt.batch_size = 1  # Inference only works with batch size = 1
-opt.load_size = inference_size  # Resize to 256x256 during preprocessing (adjust as needed)
-opt.crop_size = inference_size  # Crop size must match load size for this example
+opt.isTrain  = False
+opt.no_dropout = True
+opt.batch_size = 1
+opt.load_size  = args.inference_size
+opt.crop_size  = args.inference_size
 
-# Set the device to MPS if available, otherwise CPU
-device = torch.device("mps")
+device = torch.device("mps") if torch.backends.mps.is_available() else torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
 
-# Create the CycleGAN model
+# ---------- Build & load generator --------------------------------------------
 cycleGAN = create_model(opt)
-cycleGAN.eval()  # Set the model to evaluation mode
-
-# Manually load netG_A weights
-state_dict = torch.load(weights_path, map_location=device)
+cycleGAN.eval()
+state_dict = torch.load(args.weights_path, map_location=device)
 cycleGAN.netG_A.load_state_dict(state_dict)
+gen = cycleGAN.netG_A.to(device).eval()
 
-# Move the model to the device
-cycleGAN.netG_A = cycleGAN.netG_A.to(device)
+print("• Generator loaded")
 
-# Access the generator (netG_A)
-model_netG_A = cycleGAN.netG_A
+# ---------- Wrap with 0-255 scaling --------------------------------------------
+class To255(nn.Module):
+    def forward(self, x):
+        return (x + 1.0) * 127.5          # [-1,1] → [0,255]
 
-# Print a summary to verify everything is working
-print("CycleGAN model created successfully!")
-print(f"Generator loaded: {model_netG_A}")
-# Create a dummy input with the same shape as your input images
-dummy_input = torch.randn(1, 3, inference_size, inference_size).to(device)
+model = nn.Sequential(gen, To255()).to(device).eval()
 
-# Trace the model to produce a TorchScript version
-traced_model = torch.jit.trace(model_netG_A, dummy_input)
+# ---------- Trace --------------------------------------------------------------
+H = W = args.inference_size
+dummy = torch.rand(1, 3, H, W, device=device) * 2 - 1   # [-1,1] dummy input
+traced = torch.jit.trace(model, dummy, strict=False)
 
-# Save the TorchScript model (optional, for debugging)
-traced_model_path = "./cycleGAN_traced.pt"
-traced_model.save(traced_model_path)
+print("• TorchScript traced")
 
-print(f"TorchScript model saved to {traced_model_path}")
-import coremltools as ct
+# ---------- Convert to Core ML --------------------------------------------------
+rgb_bias  = [-1.0, -1.0, -1.0]
+rgb_scale = 1 / 127.5
 
-# Convert the TorchScript model to Core ML
-coreml_model = ct.convert(
-    traced_model,
-    inputs=[ct.ImageType(name="input", shape=(1, 3, inference_size, inference_size))],
-    minimum_deployment_target=ct.target.iOS13  # Specify deployment target if needed
+mlmodel = ct.convert(
+    traced,
+    convert_to="mlprogram",
+    compute_units=ct.ComputeUnit.ALL,
+    compute_precision=ct.precision.FLOAT16,
+    minimum_deployment_target=ct.target.iOS15,
+
+    # ---------- INPUT  (still has shape/bias/scale) ----------
+    inputs=[ct.ImageType(
+        name="input",
+        shape=dummy.shape,
+        bias=rgb_bias,
+        scale=rgb_scale,
+        color_layout="RGB")],
+
+    # ---------- OUTPUT (no shape) ----------
+    outputs=[ct.ImageType(
+        name="output",
+        color_layout="RGB")]
 )
 
-# Save the Core ML model with the correct extension
-coreml_model_path = f"./{name}.mlpackage"
-coreml_model.save(coreml_model_path)
-
-print(f"Core ML model saved to {coreml_model_path}")
+out_path = Path(f"{args.name}.mlpackage").resolve()
+mlmodel.save(str(out_path))
+print(f"✅ Core ML model saved to {out_path}")
