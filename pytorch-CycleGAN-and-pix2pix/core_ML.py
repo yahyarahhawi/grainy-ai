@@ -50,7 +50,7 @@ sys.argv = [
     "--model", "cycle_gan",
     "--dataset_mode", "single",
     "--gpu_ids", "-1",
-    "--netG", f"resnet_{count_resnet_blocks(torch.load(args.weights_path, map_location="cpu"))}blocks"
+    "--netG", f"resnet_{count_resnet_blocks(torch.load(args.weights_path, map_location='cpu'))}blocks"
 ]
 from options.test_options import TestOptions
 from models import create_model
@@ -98,7 +98,7 @@ mlmodel = ct.convert(
     convert_to="mlprogram",
     compute_units=ct.ComputeUnit.ALL,
     compute_precision=ct.precision.FLOAT16,
-    minimum_deployment_target=ct.target.iOS15,
+    minimum_deployment_target=ct.target.iOS17,
 
     # ---------- INPUT  (still has shape/bias/scale) ----------
     inputs=[ct.ImageType(

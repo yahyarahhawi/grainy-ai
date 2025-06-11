@@ -1,0 +1,15 @@
+
+CycleGAN Core ML Test Summary
+============================
+
+Model: G200.mlpackage
+Test Image: /Users/yahyarahhawi/Pictures/IMG_9677_input.png
+Model Size: 2048x2048
+
+Inference Methods Tested:
+  - PIL: 1.488s
+
+Output Statistics:
+  PIL:
+    Range: [0.00, 255.00]
+    Mean: 154.47, Std: 81.40
