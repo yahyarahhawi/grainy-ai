@@ -1,0 +1,18 @@
+# Core dependencies for iPhone Film Emulator
+torch>=1.4.0
+torchvision>=0.5.0
+numpy>=1.20.0
+Pillow>=8.0.0
+scikit-image>=0.18.0
+scipy>=1.6.0
+matplotlib>=3.3.0
+
+# Optional dependencies for specific features
+# gradio>=3.0.0  # For web interface (install separately if needed)
+# coremltools  # For iOS model conversion
+# pillow-heif  # For HEIC support on some systems
+
+# Development dependencies (optional)
+# pytest
+# flake8
+# black

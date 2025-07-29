@@ -1,0 +1,9 @@
+# --- core ---
+gradio[oauth,mcp]==5.32.0     # you already decided to stay on v5
+torch                  # leave as-is (compiled for CUDA 12)
+torchvision          # wheel built against the same torch
+numpy==1.26.4                 # <- **new pin**  (anything <2 works)
+Pillow
+scikit-image
+matplotlib
+# filmic  (drop if you vendored the code; otherwise keep your git line)

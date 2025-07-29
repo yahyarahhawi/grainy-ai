@@ -1,35 +1,10 @@
-*.jpg
-*.tif
-*.jpeg
-*.pth
-*.heic
-*.webp
-*.zip*.jpg
-*.tif
-*.jpeg
-*.pth
-*.heic
-*.webp
-*.zip
-*.pth
-*.png
-*.mov
-*.mp4
-*.avi
-*.MOV
-*.RAF
-UNSB/
-
-# Raw images and videos
-*.jpg
-*.jpeg
-*.png
-*.mov
-*.mp4
-*.tiff
-*.heic
+# ===================================
+# Grainy AI - iPhone Film Emulator
+# ===================================
 
 # Model weights and ML packages
+weights/
+old_weights/
 *.pth
 *.mlmodel
 *.mlpackage
@@ -37,14 +12,110 @@ UNSB/
 *.pkl
 *.pyz
 *.pkg
+*.onnx
+*.tflite
 
-# Build and dist folders
+# Media files (examples, test images, outputs)
+*.jpg
+*.jpeg
+*.png
+*.tiff
+*.tif
+*.heic
+*.webp
+*.bmp
+*.gif
+*.mov
+*.mp4
+*.avi
+*.MOV
+*.mkv
+*.RAF
+*.cr2
+*.nef
+*.dng
+
+# Archives and compressed files
+*.zip
+*.tar.gz
+*.rar
+*.7z
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+.venv/
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+*/.ipynb_checkpoints/*
+
+# PyTorch/ML specific
+.torch/
+*.pt
+lightning_logs/
+runs/
+wandb/
+
+# IDEs and editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.spyderproject
+.spyproject
+
+# Operating System
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Build and distribution
 build/
 dist/
+*.egg-info/
+.eggs/
 
-# Mac system files
-.DS_Store
+# Logs and databases
+*.log
+*.sqlite
+*.db
 
-# PyTorch cache and compiled Python files
-__pycache__/
-*.pyc
+# Environment and config
+.env
+.env.local
+.env.*.local
+config.json
+secrets.json
+
+# Documentation (internal)
+CLAUDE.md
+TODO.md
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.temp
+.cache/
+
+# Project specific
+UNSB/
+coreMLs/
+checkpoints/
+results/
+datasets/
+*.tensorboard
