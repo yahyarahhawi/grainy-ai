@@ -234,7 +234,7 @@ flake8 .
 
 This project is licensed under the MIT License with Commercial Use Restriction - see the [LICENSE](LICENSE) file for details.
 
-**⚠️ Commercial Use Notice**: Any commercial use of this software requires explicit written approval from the author. For commercial licensing inquiries, please contact [your-email@domain.com].
+**⚠️ Commercial Use Notice**: Any commercial use of this software requires explicit written approval from the author. For commercial licensing inquiries, please contact [yahyarahhawi@gmail.com].
 
 ## 🙏 Acknowledgments
 
