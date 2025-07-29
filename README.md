@@ -157,10 +157,9 @@ grainy-ai/
 ├── apps/
 │   ├── cli/               # Command-line interface
 │   └── web/               # Gradio web app
-├── weights/               # Pre-trained model weights
+├── weights/               # Pre-trained model weights (download separately)
 ├── examples/              # Jupyter notebooks and examples
-├── scripts/               # Training and utility scripts
-└── docs/                  # Documentation
+└── grainy-ai/             # Hugging Face deployment (separate repo)
 ```
 
 ## ⚙️ Advanced Usage

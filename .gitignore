@@ -35,6 +35,11 @@ old_weights/
 *.nef
 *.dng
 
+# Exception: Allow demo images for README
+!examples/readme/*.jpg
+!examples/readme/*.jpeg
+!examples/readme/*.png
+
 # Archives and compressed files
 *.zip
 *.tar.gz
